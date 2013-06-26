@@ -2243,6 +2243,12 @@ let process_one_watch xc xs (path, token) =
 		debug "Time until next reading = %f2.2" next_reading;
 		next_reading in
 
+	let deregister_rrd_plugin ~domid ~name =
+		debug
+			"Deregistering RRD plugin: frontend_domid = %d, name = %s"
+			domid name;
+		RRDD.Plugin.Interdomain.deregister ~uid:(name, domid) in
+
 	if path = _introduceDomain || path = _releaseDomain
 	then look_for_different_domains xc xs
 	else match List.filter (fun x -> x <> "") (Re_str.split (Re_str.regexp "[/]") path) with
@@ -2266,6 +2272,15 @@ let process_one_watch xc xs (path, token) =
 					with e ->
 						debug "Failed to register RRD plugin: caught %s" (Printexc.to_string e))
 				grant_refs
+		| "local" :: "domain" :: domid :: "rrd" :: name :: "shutdown" :: [] ->
+			let value = try Some (xs.Xs.read path) with Xs_protocol.Enoent _ -> None in
+			if value = Some "true" then begin
+				debug "RRD plugin has announced shutdown: domid = %s, name = %s"
+					domid name;
+				safe_rm xs (Printf.sprintf "/local/domain/%s/rrd/%s" domain name);
+				try deregister_rrd_plugin ~domid:(int_of_string domid) ~name
+				with e -> debug "Failed to deregister RRD plugin: caught %s" (Printexc.to_string e)
+			end
 		| "local" :: "domain" :: domid :: _ ->
 			fire_event_on_vm domid
 		| "vm" :: uuid :: "rtc" :: "timeoffset" :: [] ->
