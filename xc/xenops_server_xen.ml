@@ -23,6 +23,8 @@ open Xenops_task
 module D = Debug.Make(struct let name = service_name end)
 open D
 
+module RRDD = Rrd_client.Client
+
 let simplified = false
 
 (* libxl_internal.h:DISABLE_UDEV_PATH *)
@@ -2042,6 +2044,7 @@ let all_domU_watches domid uuid =
 		sprintf "/local/domain/%d/console/vnc-port" domid;
 		sprintf "/local/domain/%d/console/tc-port" domid;
 		sprintf "/local/domain/%d/device" domid;
+		sprintf "/local/domain/%d/rrd" domid;
 		sprintf "/local/domain/%d/vm-data" domid;
 		sprintf "/vm/%s/rtc/timeoffset" uuid;
 	]
@@ -2231,6 +2234,15 @@ let process_one_watch xc xs (path, token) =
 					None in
 			Opt.iter (fun x -> Updates.add x updates) update in
 
+	let register_rrd_plugin ~domid ~name ~grant_refs =
+		debug
+			"Registering RRD plugin: frontend_domid = %d, name = %s, refs = [%s]"
+			domid name
+			(List.map string_of_int grant_refs |> String.concat ";");
+		let next_reading = RRDD.Plugin.Interdomain.register ~uid:(name, domid) ~info(Rrd.Five_seconds, grant_refs) in
+		debug "Time until next reading = %f2.2" next_reading;
+		next_reading in
+
 	if path = _introduceDomain || path = _releaseDomain
 	then look_for_different_domains xc xs
 	else match List.filter (fun x -> x <> "") (Re_str.split (Re_str.regexp "[/]") path) with
@@ -2239,6 +2251,21 @@ let process_one_watch xc xs (path, token) =
 			fire_event_on_device frontend kind devid
 		| "local" :: "domain" :: frontend :: "device" :: _ ->
 			look_for_different_devices (int_of_string frontend)
+		| "local" :: "domain" :: domid :: "rrd" :: name :: "grantrefs" :: [] ->
+			debug "Watch picked up an RRD plugin: domid = %s, name = %s" domid name;
+			let grant_refs =
+				try Some (xs.Xs.read path |> (String.split ',') |> (List.map int_of_string))
+				with e -> debug "Failed to read RRD plugin info: caught %s" (Printexc.to_string e); None in
+			Opt.iter
+				(fun grant_refs ->
+					try
+						let next_reading = register_rrd_plugin ~domid:(int_of_string domid) ~name ~grant_refs in
+						xs.Xs.write
+							(Printf.sprintf "/local/domain/%s/rrd/%s/next-reading" domid name)
+							(string_of_float next_reading)
+					with e ->
+						debug "Failed to register RRD plugin: caught %s" (Printexc.to_string e))
+				grant_refs
 		| "local" :: "domain" :: domid :: _ ->
 			fire_event_on_vm domid
 		| "vm" :: uuid :: "rtc" :: "timeoffset" :: [] ->
