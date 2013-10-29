@@ -2868,7 +2868,7 @@ let init () =
 	logger := Some logger';
 
 	with_ctx (fun ctx ->
-		ignore (Xenlight_events.event_loop_init ctx);
+		ignore (Xenlight_events.event_loop_init_poll ctx);
 	(*	Xenlight_events.E.evenable_domain_death ctx 47 666 *)
 	);
 
