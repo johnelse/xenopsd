@@ -142,3 +142,16 @@ let event_loop_init ctx =
 	let _ = async_register_callback ~async_callback in
 	Thread.create (fun () -> event_loop_start ctx) ()
 
+(* Alternative event loop which uses the less-efficient polling method. *)
+let event_loop_start_poll ctx =
+	debug "EVENTLOOP: Starting osevent loop!";
+	while true do
+		debug "EVENTLOOP: Before osevent_poll";
+		osevent_poll ctx;
+		debug "EVENTLOOP: After osevent_poll"
+	done
+
+let event_loop_init_poll ctx =
+	let _ = event_register_callbacks ctx ~user:"xenopsd-event" ~event_occurs_callback ~event_disaster_callback in
+	let _ = async_register_callback ~async_callback in
+	Thread.create (fun () -> event_loop_start_poll ctx) ()
