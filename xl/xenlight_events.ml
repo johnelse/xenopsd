@@ -9,7 +9,7 @@ module E = Async(
 	struct
 		type osevent_user = int
 		type event_user = string
-		type async_user = error option Ocaml_event.channel
+		type async_user = int64
 	end)
 open E
 
@@ -32,13 +32,45 @@ let event_disaster_callback user event_type msg errnoval =
 	debug "EVENT disaster: %s, user %s" msg user
 
 (* async callbacks *)
+let user_lock = Mutex.create ()
+let next_user = ref 0L
+let user_table : (int64, error option Ocaml_event.channel) Hashtbl.t =
+	Hashtbl.create 10
+
+let make_user () =
+	let channel = Ocaml_event.new_channel () in
+	Mutex.execute user_lock
+		(fun () ->
+			let user = !next_user in
+			next_user := (Int64.add user 1L);
+			Hashtbl.replace user_table user channel;
+			user)
+
+let wait_for_user ~user =
+	let channel =
+		Mutex.execute user_lock
+			(fun () -> Hashtbl.find user_table user)
+	in
+	Ocaml_event.sync (Ocaml_event.receive channel)
+
+let signal_user ~result ~user =
+	let channel =
+		Mutex.execute user_lock
+			(fun () -> Hashtbl.find user_table user)
+	in
+	Ocaml_event.sync (Ocaml_event.send channel result)
+
+let remove_user ~user =
+	Mutex.execute user_lock
+		(fun () -> Hashtbl.remove user_table user)
 
 let async f =
 	debug "ASYNC call";
-	let channel = Ocaml_event.new_channel () in
-	let result = Mutex.execute xl_m (fun () -> E.async f channel) in
+	let user = make_user () in
+	let result = Mutex.execute xl_m (fun () -> E.async f user) in
 	debug "ASYNC call returned";
-	let ret = Ocaml_event.sync (Ocaml_event.receive channel) in
+	let ret = wait_for_user ~user in
+	remove_user ~user;
 	match ret with
 	| None ->
 		result
@@ -47,7 +79,7 @@ let async f =
 
 let async_callback ~result ~user =
 	debug "ASYNC callback";
-	Ocaml_event.sync (Ocaml_event.send user result)
+	signal_user ~result ~user
 
 (* event registration and main loop *)
 
