@@ -71,15 +71,18 @@ let async f =
 	debug "ASYNC call returned";
 	let ret = wait_for_user ~user in
 	remove_user ~user;
+	debug "ASYNC synced with callback";
 	match ret with
 	| None ->
 		result
 	| Some e ->
+		debug "libxl raised %s" (Xenlight.string_of_error e);
 		raise (Error (e, "async call"))
 
 let async_callback ~result ~user =
 	debug "ASYNC callback";
-	signal_user ~result ~user
+	signal_user ~result ~user;
+	debug "ASYNC sent event notification"
 
 (* event registration and main loop *)
 
