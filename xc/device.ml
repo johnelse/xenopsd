@@ -1110,8 +1110,14 @@ let add_xl = xl_pci "pci-attach"
 let release_xl = xl_pci "pci-detach"
 
 let add ~xc ~xs ~hvm ~msitranslate ~pci_power_mgmt ?flrscript pcidevs domid devid =
-	try add_xl ~msitranslate ~pci_power_mgmt pcidevs domid
-	with exn -> raise (Cannot_add (pcidevs, exn))
+	try
+		if hvm
+		then add_noexn ~xc ~xs ~hvm ~msitranslate ~pci_power_mgmt ?flrscript pcidevs domid devid
+		else
+			(* Switch the PV path over to libxl since the code is better *)
+			add_xl ~msitranslate ~pci_power_mgmt pcidevs domid
+	with exn ->
+		raise (Cannot_add (pcidevs, exn))
 
 let release_exn ~xc ~xs ~hvm pcidevs domid devid =
 	let pcidevs = List.map (fun (domain, bus, slot, func) ->
@@ -1133,7 +1139,11 @@ let release_exn ~xc ~xs ~hvm pcidevs domid devid =
 	()
 
 let release ~xc ~xs ~hvm pcidevs domid devid =
-	release_xl pcidevs domid
+	if hvm
+	then release_exn ~xc ~xs ~hvm pcidevs domid devid
+	else 
+		(* Switch the PV path over to libxl since the code is better *)
+		release_xl pcidevs domid
 
 let write_string_to_file file s =
 	let fn_write_string fd = Unixext.really_write fd s 0 (String.length s) in
